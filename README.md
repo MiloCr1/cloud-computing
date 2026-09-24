@@ -95,3 +95,5 @@ Je begint dus nooit opnieuw. Elke opdracht bouwt verder op de vorige.
 Je hebt hem gemaakt vanaf het sjabloon, dus dit is jouw kopie. Werk erin, commit
 elke les, en push. Indienen doe je met de link naar een commit. Hoe dat precies
 gaat, staat in de opdrachtbundel op Toledo.
+
+aanpassing
