@@ -96,4 +96,130 @@ Je hebt hem gemaakt vanaf het sjabloon, dus dit is jouw kopie. Werk erin, commit
 elke les, en push. Indienen doe je met de link naar een commit. Hoe dat precies
 gaat, staat in de opdrachtbundel op Toledo.
 
-aanpassing
+
+## Storingsmelder opzetten vanaf nul
+
+Je hebt Docker Desktop nodig, draaiend. Verder niets.
+
+```powershell
+git clone https://github.com/MiloCr1/cloud-computing.git
+cd cloud-computing
+Copy-Item .env.example .env
+```
+
+Vul `.env` in. De drie waardes mag je zelf kiezen, bijvoorbeeld:
+
+```
+POSTGRES_USER=storing
+POSTGRES_PASSWORD=een-wachtwoord-naar-keuze
+POSTGRES_DB=storingen
+```
+
+Daarna:
+
+```powershell
+docker compose up -d --build
+```
+
+De applicatie staat op **http://localhost:8000**
+
+Controleren dat alles draait:
+
+```powershell
+docker compose ps
+```
+
+`db` hoort `(healthy)` te tonen en `web` `Up`. De applicatie bevestigt zelf dat ze met PostgreSQL praat:
+
+```powershell
+curl.exe -s http://localhost:8000/health
+```
+
+Antwoord: `{"status": "ok", "opslag": "PostgreSQL"}`
+
+Stoppen:
+
+```powershell
+docker compose down      # data blijft staan
+docker compose down -v   # data wordt ook gewist
+```
+
+---
+
+## Het image op ghcr.io
+
+```
+ghcr.io/milocr1/storingsmelder:1.0
+```
+
+Publiek, dus op te halen zonder in te loggen:
+
+```powershell
+docker pull ghcr.io/milocr1/storingsmelder:1.0
+```
+
+Versie `1.0`, niet `latest`.
+
+---
+
+## Wat er in de repo zit
+
+```
+app.py                de applicatie, ongewijzigd uit het startpakket
+requirements.txt      Flask en psycopg
+templates/            de HTML
+Dockerfile            bouwt het image van de applicatie
+.dockerignore         houdt .git en lokale rommel uit de build context
+compose.yaml          start web en db samen
+.env.example          de namen van de instellingen, met lege waardes
+.gitignore            bevat .env, zodat het wachtwoord niet in de repo komt
+oefeningen.md         de antwoorden op de oefeningen van de drie labo's
+```
+
+`.env` staat bewust niet in de repo om wachtwoorden niet publiek te maken.
+
+---
+
+## Wat ik gedaan heb
+
+### Het image
+
+De Dockerfile vertrekt van `python:3.14-slim`.
+
+`requirements.txt` wordt apart gekopieerd, vóór `pip install`, en pas daarna de rest van de code. Daardoor hangt de pip-laag alleen af van de dependencies en blijft die in de cache bij een codewijziging.
+
+`pip install` krijgt `--no-cache-dir` mee. pip bewaart anders een wheel-cache die na de build nooit meer gebruikt wordt maar wel in de laag zit.
+
+De applicatie draait niet als root maar als `appuser`. Omdat `/data` door root aangemaakt wordt, moet die map eerst aan die gebruiker gegeven worden, anders crasht de applicatie op `unable to open database file` zodra ze haar database wil wegschrijven.
+
+Er zit een `HEALTHCHECK` in die `/health` opvraagt. Omdat er geen curl in het image zit, gebeurt dat met `urllib` uit de standaardbibliotheek.
+
+`.dockerignore` houdt onder meer `.git` buiten de build context. Dat scheelt nu nog weinig, maar die map groeit met elke commit, en zonder die regel zou de volledige git-geschiedenis via `COPY . .` in een laag van een publiek image terechtkomen.
+
+### Applicatie en database samen
+
+`compose.yaml` start twee services. `web` wordt gebouwd uit de Dockerfile, `db`
+draait `postgres:18`.
+
+De database publiceert geen poort. De applicatie bereikt haar via het interne
+netwerk dat Compose aanmaakt.
+
+De host in `DATABASE_URL` is `db`, de servicenaam. Niet `localhost`, dat is binnen een container de container zelf, en daar luistert niets op 5432.
+
+De data van PostgreSQL staat in het volume `pgdata`, gekoppeld aan `/var/lib/postgresql/18/docker`.
+
+### De opstartvolgorde
+
+Bij een koude start crashte `web` met `Connection refused`. Dat is geen fout in het bestand maar timing: PostgreSQL meldt `ready to accept connections` al terwijl alleen de Unix-socket openstaat, en luistert pas een seconde later op IPv4.
+
+Opgelost met een healthcheck op `db` die `pg_isready -h 127.0.0.1` draait, plus `depends_on: condition: service_healthy` op `web`.
+
+Sindsdien toont `docker compose up` eerst `db Waiting`, dan `db Healthy`, en pas daarna start `web`.
+
+`restart: unless-stopped` staat erbij als vangnet voor onvoorziene crashes.
+
+---
+
+## Dat de data blijft staan
+
+Na `docker compose down` en opnieuw `up -d` staan de meldingen er nog. Na `docker compose down -v` zijn ze weg.

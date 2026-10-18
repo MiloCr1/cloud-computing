@@ -1,0 +1,12 @@
+@'
+.git
+.gitignore
+.dockerignore
+Dockerfile
+__pycache__/
+*.pyc
+*.db
+.venv/
+venv/
+.vscode/
+'@ | Set-Content -Path .\.dockerignore -Encoding utf8NoBOM
